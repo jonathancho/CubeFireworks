@@ -3,16 +3,23 @@
 #endif 
 
 #include <windows.h>
+#include <iostream>
 #include <gl/gl.h>
+#include "./glext.h"
 //#include <stddef.h>
 //#include <mmsystem.h>
 
 const int clientWidth = 800;
 const int clientHeight = 600;
 
+const float CAMERA_DISTANCE = 5.0f;
+
 float  g_fElapsedTime = 0.0f;
 float  g_dCurrentTime = 0.0f;
 float  g_dLastTime = 0.0f;
+
+bool vboSupported;
+GLuint vboID = 0;
 
 HWND Hwnd = NULL;
 
@@ -22,6 +29,86 @@ void InitOpenGL(HWND hWnd, HDC* hDC, HGLRC* hRC);
 void ShutDownOpenGL(HWND hWnd, HDC hDC, HGLRC hRC);
 void UpdateScene(float dt);
 void Render(float& theta, HDC hDC);
+
+GLfloat vertices[] = { 1, 1, 1,  -1, 1, 1,  -1,-1, 1,      // v0-v1-v2 (front)
+					   -1,-1, 1,   1,-1, 1,   1, 1, 1,      // v2-v3-v0
+
+					   1, 1, 1,   1,-1, 1,   1,-1,-1,      // v0-v3-v4 (right)
+					   1,-1,-1,   1, 1,-1,   1, 1, 1,      // v4-v5-v0
+
+					   1, 1, 1,   1, 1,-1,  -1, 1,-1,      // v0-v5-v6 (top)
+					   -1, 1,-1,  -1, 1, 1,   1, 1, 1,      // v6-v1-v0
+
+					   -1, 1, 1,  -1, 1,-1,  -1,-1,-1,      // v1-v6-v7 (left)
+					   -1,-1,-1,  -1,-1, 1,  -1, 1, 1,      // v7-v2-v1
+
+					   -1,-1,-1,   1,-1,-1,   1,-1, 1,      // v7-v4-v3 (bottom)
+					   1,-1, 1,  -1,-1, 1,  -1,-1,-1,      // v3-v2-v7
+
+					   1,-1,-1,  -1,-1,-1,  -1, 1,-1,      // v4-v7-v6 (back)
+					   -1, 1,-1,   1, 1,-1,   1,-1,-1 };    // v6-v5-v4
+
+															// normal array
+GLfloat normals[] = { 0, 0, 1,   0, 0, 1,   0, 0, 1,      // v0-v1-v2 (front)
+					  0, 0, 1,   0, 0, 1,   0, 0, 1,      // v2-v3-v0
+
+					  1, 0, 0,   1, 0, 0,   1, 0, 0,      // v0-v3-v4 (right)
+					  1, 0, 0,   1, 0, 0,   1, 0, 0,      // v4-v5-v0
+
+					  0, 1, 0,   0, 1, 0,   0, 1, 0,      // v0-v5-v6 (top)
+					  0, 1, 0,   0, 1, 0,   0, 1, 0,      // v6-v1-v0
+
+					  -1, 0, 0,  -1, 0, 0,  -1, 0, 0,      // v1-v6-v7 (left)
+					  -1, 0, 0,  -1, 0, 0,  -1, 0, 0,      // v7-v2-v1
+
+					  0,-1, 0,   0,-1, 0,   0,-1, 0,      // v7-v4-v3 (bottom)
+					  0,-1, 0,   0,-1, 0,   0,-1, 0,      // v3-v2-v7
+
+					  0, 0,-1,   0, 0,-1,   0, 0,-1,      // v4-v7-v6 (back)
+					  0, 0,-1,   0, 0,-1,   0, 0,-1 };    // v6-v5-v4
+
+// color array
+GLfloat colors[] = { 1, 1, 1,   1, 1, 0,   1, 0, 0,      // v0-v1-v2 (front)
+					 1, 0, 0,   1, 0, 1,   1, 1, 1,      // v2-v3-v0
+
+					 1, 1, 1,   1, 0, 1,   0, 0, 1,      // v0-v3-v4 (right)
+					 0, 0, 1,   0, 1, 1,   1, 1, 1,      // v4-v5-v0
+
+					 1, 1, 1,   0, 1, 1,   0, 1, 0,      // v0-v5-v6 (top)
+					 0, 1, 0,   1, 1, 0,   1, 1, 1,      // v6-v1-v0
+
+					 1, 1, 0,   0, 1, 0,   0, 0, 0,      // v1-v6-v7 (left)
+					 0, 0, 0,   1, 0, 0,   1, 1, 0,      // v7-v2-v1
+
+					 0, 0, 0,   0, 0, 1,   1, 0, 1,      // v7-v4-v3 (bottom)
+					 1, 0, 1,   1, 0, 0,   0, 0, 0,      // v3-v2-v7
+
+					 0, 0, 1,   0, 0, 0,   0, 1, 0,      // v4-v7-v6 (back)
+					 0, 1, 0,   0, 1, 1,   0, 0, 1 };    // v6-v5-v4
+
+// function pointers for VBO Extension
+// Windows needs to get function pointers from ICD OpenGL drivers,
+// because opengl32.dll does not support extensions higher than v1.1.
+#ifdef _WIN32
+PFNGLGENBUFFERSARBPROC            pglGenBuffersARB = 0;             // VBO Name Generation Procedure
+PFNGLBINDBUFFERARBPROC            pglBindBufferARB = 0;             // VBO Bind Procedure
+PFNGLBUFFERDATAARBPROC            pglBufferDataARB = 0;             // VBO Data Loading Procedure
+PFNGLBUFFERSUBDATAARBPROC         pglBufferSubDataARB = 0;          // VBO Sub Data Loading Procedure
+PFNGLDELETEBUFFERSARBPROC         pglDeleteBuffersARB = 0;          // VBO Deletion Procedure
+PFNGLGETBUFFERPARAMETERIVARBPROC  pglGetBufferParameterivARB = 0;   // return various parameters of VBO
+PFNGLMAPBUFFERARBPROC             pglMapBufferARB = 0;              // map VBO procedure
+PFNGLUNMAPBUFFERARBPROC           pglUnmapBufferARB = 0;            // unmap VBO procedure
+
+#define glGenBuffersARB           pglGenBuffersARB
+#define glBindBufferARB           pglBindBufferARB
+#define glBufferDataARB           pglBufferDataARB
+#define glBufferSubDataARB        pglBufferSubDataARB
+#define glDeleteBuffersARB        pglDeleteBuffersARB
+#define glGetBufferParameterivARB pglGetBufferParameterivARB
+#define glMapBufferARB            pglMapBufferARB
+#define glUnmapBufferARB          pglUnmapBufferARB
+
+#endif
 
 int WINAPI WinMain(HINSTANCE hInstance,
 	HINSTANCE hPrevInstance,
@@ -137,6 +224,40 @@ void InitOpenGL(HWND hWnd, HDC* hDC, HGLRC* hRC)
 	// create and enable the render context (RC)
 	*hRC = wglCreateContext(*hDC);
 	wglMakeCurrent(*hDC, *hRC);
+
+	// get pointers to GL functions
+	glGenBuffersARB = (PFNGLGENBUFFERSARBPROC)wglGetProcAddress("glGenBuffersARB");
+	glBindBufferARB = (PFNGLBINDBUFFERARBPROC)wglGetProcAddress("glBindBufferARB");
+	glBufferDataARB = (PFNGLBUFFERDATAARBPROC)wglGetProcAddress("glBufferDataARB");
+	glBufferSubDataARB = (PFNGLBUFFERSUBDATAARBPROC)wglGetProcAddress("glBufferSubDataARB");
+	glDeleteBuffersARB = (PFNGLDELETEBUFFERSARBPROC)wglGetProcAddress("glDeleteBuffersARB");
+	glGetBufferParameterivARB = (PFNGLGETBUFFERPARAMETERIVARBPROC)wglGetProcAddress("glGetBufferParameterivARB");
+	glMapBufferARB = (PFNGLMAPBUFFERARBPROC)wglGetProcAddress("glMapBufferARB");
+	glUnmapBufferARB = (PFNGLUNMAPBUFFERARBPROC)wglGetProcAddress("glUnmapBufferARB");
+
+	// check if VBO extension is supported
+	if (glGenBuffersARB && glBindBufferARB && glBufferDataARB && glBufferSubDataARB &&
+		glMapBufferARB && glUnmapBufferARB && glDeleteBuffersARB && glGetBufferParameterivARB)
+	{
+		vboSupported = true;
+		std::cout << "Video card supports GL_ARB_vertex_buffer_object." << std::endl;
+	}
+	else
+	{
+		vboSupported = false;
+		std::cout << "Video card does NOT support GL_ARB_vertex_buffer_object." << std::endl;
+	}
+
+	if (vboSupported)
+	{
+		int bufferSize;
+		glGenBuffersARB(1, &vboID);
+		glBindBufferARB(GL_ARRAY_BUFFER_ARB, vboID);
+		glBufferDataARB(GL_ARRAY_BUFFER_ARB, sizeof(vertices) + sizeof(normals) + sizeof(colors), 0, GL_STATIC_DRAW_ARB);
+		glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, 0, sizeof(vertices), vertices);                             // copy vertices starting from 0 offest
+		glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, sizeof(vertices), sizeof(normals), normals);                // copy normals after vertices
+		glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, sizeof(vertices) + sizeof(normals), sizeof(colors), colors);  // copy colours after normals
+	}
 }
 
 void ShutDownOpenGL(HWND hWnd, HDC hDC, HGLRC hRC)
@@ -157,18 +278,44 @@ void Render(float& theta, HDC hDC)
 	// OpenGL animation code goes here
 
 	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	glEnable(GL_DEPTH_TEST);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 	glPushMatrix();
-	glRotatef(theta, 0.0f, 0.0f, 1.0f);
-	glBegin(GL_TRIANGLES);
-	glColor3f(1.0f, 0.0f, 0.0f); glVertex2f(0.0f, 1.0f);
-	glColor3f(0.0f, 1.0f, 0.0f); glVertex2f(0.87f, -0.5f);
-	glColor3f(0.0f, 0.0f, 1.0f); glVertex2f(-0.87f, -0.5f);
-	glEnd();
+
+	glTranslatef(0, 0, -CAMERA_DISTANCE);
+	glRotatef(0, 1, 0, 0);   // pitch
+	glRotatef(0, 0, 1, 0);   // heading
+
+	if (vboSupported)
+	{
+		glBindBufferARB(GL_ARRAY_BUFFER_ARB, vboID);
+
+		// enable vertex arrays
+		glEnableClientState(GL_NORMAL_ARRAY);
+		glEnableClientState(GL_COLOR_ARRAY);
+		glEnableClientState(GL_VERTEX_ARRAY);
+
+		// before draw, specify vertex and index arrays with their offsets
+		glNormalPointer(GL_FLOAT, 0, (void*)sizeof(vertices));
+		glColorPointer(3, GL_FLOAT, 0, (void*)(sizeof(vertices) + sizeof(normals)));
+		glVertexPointer(3, GL_FLOAT, 0, 0);
+
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+
+		glDisableClientState(GL_VERTEX_ARRAY);  // disable vertex arrays
+		glDisableClientState(GL_COLOR_ARRAY);
+		glDisableClientState(GL_NORMAL_ARRAY);
+
+		// it is good idea to release VBOs with ID 0 after use.
+		// Once bound with 0, all pointers in gl*Pointer() behave as real
+		// pointer, so, normal vertex array operations are re-activated
+		glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+	}
+
 	glPopMatrix();
 
 	SwapBuffers(hDC);
 
-	theta += 1.0f;
+	//theta += 1.0f;
 }
