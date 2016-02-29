@@ -20,12 +20,15 @@ const int clientHeight = 600;
 
 const float CAMERA_DISTANCE = 5.0f;
 
+const int STARTING_LIVES = 3;
+const int NUM_PER_EXPLOSION = 3;
+
 float  g_fElapsedTime = 0.0f;
 float  g_dCurrentTime = 0.0f;
 float  g_dLastTime = 0.0f;
 
-int curExplosions = 0;
-int maxExplosions = 1;
+//int curExplosions = 0;
+//int maxExplosions = 1;
 
 bool vboSupported;
 GLuint vboID = 0;
@@ -43,8 +46,12 @@ GLuint colorBuffer;
 
 GLuint shaderProgram;
 
-glm::mat4 Projection;
-glm::mat4 View;
+glm::mat4 Projection = glm::perspective(45.0f, 4.0f / 3.0f, 0.1f, 100.0f);
+glm::mat4 View = glm::lookAt(
+	glm::vec3(0, 0, -20),
+	glm::vec3(0, 0, 0), // and looks at the origin
+	glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
+	);
 
 HWND Hwnd = NULL;
 
@@ -156,12 +163,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		double y = -2.0 * ptCurrentMousePosit.y / clientHeight + 1;
 		glm::mat4 viewProjectionInverse = glm::inverse(Projection * View);
 
-		glm::vec4 mousePosWorld = viewProjectionInverse * glm::vec4(x, y, 1, 1);
+		glm::vec4 mousePosWorld = viewProjectionInverse * glm::vec4(x, y, 1.0f, 1);
 		mousePosWorld.w = 1.0f / mousePosWorld.w;
 
 		Cube newCube;
 		newCube.trans = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -10.0f, 0.0f));
 		newCube.targetPos = glm::vec3(mousePosWorld.x * mousePosWorld.w, mousePosWorld.y * mousePosWorld.w, mousePosWorld.z * mousePosWorld.w);
+		newCube.lives = STARTING_LIVES;
 
 		cubes.push_back(newCube);
 	}
@@ -373,14 +381,6 @@ void UpdateScene(float dt)
 
 	for (int i = 0; i < cubes.size(); ++i)
 	{
-		// Projection matrix : 45° Field of View, 4:3 ratio, display range : 0.1 unit <-> 100 units
-		Projection = glm::perspective(45.0f, 4.0f / 3.0f, 0.1f, 100.0f);
-		// Camera matrix
-		View = glm::lookAt(
-			glm::vec3(0, 0, -20),
-			glm::vec3(0, 0, 0), // and looks at the origin
-			glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
-			);
 		// Model matrix : an identity matrix (model will be at the origin)
 
 		cubes[i].rot = glm::rotate(glm::mat4(1.0f), theta, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -394,44 +394,35 @@ void UpdateScene(float dt)
 		//glm::mat4 MVP = Projection * View * Model; // Remember, matrix multiplication is the other way around
 		cubes[i].MVP = Projection * View * Model;
 
-		// Incrementing tValue till cube reaches cursur pos
-		if (cubes[i].tValue < 1.0f)
-		{
-			cubes[i].tValue += 0.01f;
-		}
-		else if (curExplosions < maxExplosions) // Cube has reached cursor pos, time to spawn more cubes
-		{
-			glm::vec3 randVec1 = glm::sphericalRand(10.0f);
-			glm::vec3 randVec2 = glm::sphericalRand(10.0f);
+		cubes[i].tValue += 0.01f;
 
-			Cube cube1;
-			cube1.currentPos = cubes[i].currentPos;
-			cube1.startingPos = cubes[i].currentPos;
-			cube1.targetPos = glm::vec3(cubes[i].currentPos.x + randVec1.x, cubes[i].currentPos.y + randVec1.y, cubes[i].currentPos.z);
-			
-			Cube cube2;
-			cube2.currentPos = cubes[i].currentPos;
-			cube2.startingPos = cubes[i].currentPos;
-			cube2.targetPos = glm::vec3(cubes[i].currentPos.x + randVec2.x, cubes[i].currentPos.y + randVec2.y, cubes[i].currentPos.z);
+		if (cubes[i].tValue >= 1.0f)
+		{
+			if (--cubes[i].lives > 0)
+			{
+					glm::vec3 randVec1 = glm::sphericalRand(20.0f);
+					glm::vec3 randVec2 = glm::sphericalRand(20.0f);
 
+					Cube cube1;
+					cube1.currentPos = cubes[i].currentPos;
+					cube1.startingPos = cubes[i].currentPos;
+					cube1.targetPos = glm::vec3(cubes[i].currentPos.x + randVec1.x, cubes[i].currentPos.y + randVec1.y, cubes[i].currentPos.z);
+					cube1.lives = cubes[i].lives;
+
+					Cube cube2;
+					cube2.currentPos = cubes[i].currentPos;
+					cube2.startingPos = cubes[i].currentPos;
+					cube2.targetPos = glm::vec3(cubes[i].currentPos.x + randVec2.x, cubes[i].currentPos.y + randVec2.y, cubes[i].currentPos.z);
+					cube2.lives = cubes[i].lives;
+
+					cubes.push_back(cube1);
+					cubes.push_back(cube2);
+			}
 			cubes.erase(cubes.begin() + i);
-
-			cubes.push_back(cube1);
-			cubes.push_back(cube2);
-			
-			curExplosions++;
 		}
-		else
-		{
-			cubes.clear();
-			curExplosions = 0;
-		}
-
-		//glUseProgram(shaderProgram);
-		//glUniformMatrix4fv(uniform_mvp, 1, GL_FALSE, &cubes[i].MVP[0][0]);
 	}
 
-	theta += 0.01f;
+	theta += 0.02f;
 
 	return;
 }
