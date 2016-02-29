@@ -6,13 +6,14 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <vector>
 #include <GL/glew.h>
 #include <GL/wglew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-//#include "./glext.h"
-//#include <stddef.h>
-//#include <mmsystem.h>
+#include <glm/gtc/random.hpp>
+#include "Cube.h"
+
 
 const int clientWidth = 800;
 const int clientHeight = 600;
@@ -22,6 +23,9 @@ const float CAMERA_DISTANCE = 5.0f;
 float  g_fElapsedTime = 0.0f;
 float  g_dCurrentTime = 0.0f;
 float  g_dLastTime = 0.0f;
+
+int curExplosions = 0;
+int maxExplosions = 1;
 
 bool vboSupported;
 GLuint vboID = 0;
@@ -34,9 +38,17 @@ GLint attribute_coord3d;
 GLint attribute_v_color;
 GLint uniform_mvp;
 
+GLuint vertexBuffer;
+GLuint colorBuffer;
+
 GLuint shaderProgram;
 
+glm::mat4 Projection;
+glm::mat4 View;
+
 HWND Hwnd = NULL;
+
+std::vector<Cube> cubes;
 
 // Function Declarations
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -45,30 +57,6 @@ void ShutDownOpenGL(HWND hWnd, HDC hDC, HGLRC hRC);
 void UpdateScene(float dt);
 void Render(float& theta, HDC hDC);
 std::string loadFile(const char *fname);
-
-// function pointers for VBO Extension
-// Windows needs to get function pointers from ICD OpenGL drivers,
-// because opengl32.dll does not support extensions higher than v1.1.
-//#ifdef _WIN32
-//PFNGLGENBUFFERSARBPROC            pglGenBuffersARB = 0;             // VBO Name Generation Procedure
-//PFNGLBINDBUFFERARBPROC            pglBindBufferARB = 0;             // VBO Bind Procedure
-//PFNGLBUFFERDATAARBPROC            pglBufferDataARB = 0;             // VBO Data Loading Procedure
-//PFNGLBUFFERSUBDATAARBPROC         pglBufferSubDataARB = 0;          // VBO Sub Data Loading Procedure
-//PFNGLDELETEBUFFERSARBPROC         pglDeleteBuffersARB = 0;          // VBO Deletion Procedure
-//PFNGLGETBUFFERPARAMETERIVARBPROC  pglGetBufferParameterivARB = 0;   // return various parameters of VBO
-//PFNGLMAPBUFFERARBPROC             pglMapBufferARB = 0;              // map VBO procedure
-//PFNGLUNMAPBUFFERARBPROC           pglUnmapBufferARB = 0;            // unmap VBO procedure
-//
-//#define glGenBuffersARB           pglGenBuffersARB
-//#define glBindBufferARB           pglBindBufferARB
-//#define glBufferDataARB           pglBufferDataARB
-//#define glBufferSubDataARB        pglBufferSubDataARB
-//#define glDeleteBuffersARB        pglDeleteBuffersARB
-//#define glGetBufferParameterivARB pglGetBufferParameterivARB
-//#define glMapBufferARB            pglMapBufferARB
-//#define glUnmapBufferARB          pglUnmapBufferARB
-//
-//#endif
 
 int WINAPI WinMain(HINSTANCE hInstance,
 	HINSTANCE hPrevInstance,
@@ -133,13 +121,15 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	ShutDownOpenGL(Hwnd, hDC, hRC);
 
 
-	UnregisterClass(L"ModelViewerClass", winClass.hInstance);
+	UnregisterClass(L"CubeFireworks", winClass.hInstance);
 
 	return uMsg.wParam;
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	static POINT ptCurrentMousePosit;
+
 	switch (uMsg)
 	{
 	case WM_DESTROY:
@@ -155,6 +145,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 		EndPaint(hwnd, &ps);
 	}
+	break;
+
+	case WM_LBUTTONUP:
+	{
+		ptCurrentMousePosit.x = LOWORD(lParam);
+		ptCurrentMousePosit.y = HIWORD(lParam);
+
+		double x = 2.0 * ptCurrentMousePosit.x / clientWidth - 1;
+		double y = -2.0 * ptCurrentMousePosit.y / clientHeight + 1;
+		glm::mat4 viewProjectionInverse = glm::inverse(Projection * View);
+
+		glm::vec4 mousePosWorld = viewProjectionInverse * glm::vec4(x, y, 1, 1);
+		mousePosWorld.w = 1.0f / mousePosWorld.w;
+
+		Cube newCube;
+		newCube.trans = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -10.0f, 0.0f));
+		newCube.targetPos = glm::vec3(mousePosWorld.x * mousePosWorld.w, mousePosWorld.y * mousePosWorld.w, mousePosWorld.z * mousePosWorld.w);
+
+		cubes.push_back(newCube);
+	}
+	break;
 	return 0;
 
 	}
@@ -185,40 +196,6 @@ void InitOpenGL(HWND hWnd, HDC* hDC, HGLRC* hRC)
 	*hRC = wglCreateContext(*hDC);
 	wglMakeCurrent(*hDC, *hRC);
 
-	// get pointers to GL functions
-	//glGenBuffersARB = (PFNGLGENBUFFERSARBPROC)wglGetProcAddress("glGenBuffersARB");
-	//glBindBufferARB = (PFNGLBINDBUFFERARBPROC)wglGetProcAddress("glBindBufferARB");
-	//glBufferDataARB = (PFNGLBUFFERDATAARBPROC)wglGetProcAddress("glBufferDataARB");
-	//glBufferSubDataARB = (PFNGLBUFFERSUBDATAARBPROC)wglGetProcAddress("glBufferSubDataARB");
-	//glDeleteBuffersARB = (PFNGLDELETEBUFFERSARBPROC)wglGetProcAddress("glDeleteBuffersARB");
-	//glGetBufferParameterivARB = (PFNGLGETBUFFERPARAMETERIVARBPROC)wglGetProcAddress("glGetBufferParameterivARB");
-	//glMapBufferARB = (PFNGLMAPBUFFERARBPROC)wglGetProcAddress("glMapBufferARB");
-	//glUnmapBufferARB = (PFNGLUNMAPBUFFERARBPROC)wglGetProcAddress("glUnmapBufferARB");
-
-	//// check if VBO extension is supported
-	//if (glGenBuffersARB && glBindBufferARB && glBufferDataARB && glBufferSubDataARB &&
-	//	glMapBufferARB && glUnmapBufferARB && glDeleteBuffersARB && glGetBufferParameterivARB)
-	//{
-	//	vboSupported = true;
-	//	std::cout << "Video card supports GL_ARB_vertex_buffer_object." << std::endl;
-	//}
-	//else
-	//{
-	//	vboSupported = false;
-	//	std::cout << "Video card does NOT support GL_ARB_vertex_buffer_object." << std::endl;
-	//}
-
-	//if (vboSupported)
-	//{
-	//	int bufferSize;
-	//	glGenBuffersARB(1, &vboID);
-	//	glBindBufferARB(GL_ARRAY_BUFFER_ARB, vboID);
-	//	glBufferDataARB(GL_ARRAY_BUFFER_ARB, sizeof(vertices) + sizeof(normals) + sizeof(colors), 0, GL_STATIC_DRAW_ARB);
-	//	glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, 0, sizeof(vertices), vertices);                             // copy vertices starting from 0 offest
-	//	glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, sizeof(vertices), sizeof(normals), normals);                // copy normals after vertices
-	//	glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, sizeof(vertices) + sizeof(normals), sizeof(colors), colors);  // copy colours after normals
-	//}
-
 	GLenum err = glewInit();
 	if (GLEW_OK != err)
 	{
@@ -226,61 +203,94 @@ void InitOpenGL(HWND hWnd, HDC* hDC, HGLRC* hRC)
 		fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
 	}
 
-	GLfloat cube_vertices[] = {
-		// front
-		-1.0, -1.0,  1.0,
-		1.0, -1.0,  1.0,
-		1.0,  1.0,  1.0,
-		-1.0,  1.0,  1.0,
-		// back
-		-1.0, -1.0, -1.0,
-		1.0, -1.0, -1.0,
-		1.0,  1.0, -1.0,
-		-1.0,  1.0, -1.0,
+	// Our vertices. Tree consecutive floats give a 3D vertex; Three consecutive vertices give a triangle.
+	// A cube has 6 faces with 2 triangles each, so this makes 6*2=12 triangles, and 12*3 vertices
+	static const GLfloat g_vertex_buffer_data[] = {
+		-1.0f,-1.0f,-1.0f,
+		-1.0f,-1.0f, 1.0f,
+		-1.0f, 1.0f, 1.0f,
+		1.0f, 1.0f,-1.0f,
+		-1.0f,-1.0f,-1.0f,
+		-1.0f, 1.0f,-1.0f,
+		1.0f,-1.0f, 1.0f,
+		-1.0f,-1.0f,-1.0f,
+		1.0f,-1.0f,-1.0f,
+		1.0f, 1.0f,-1.0f,
+		1.0f,-1.0f,-1.0f,
+		-1.0f,-1.0f,-1.0f,
+		-1.0f,-1.0f,-1.0f,
+		-1.0f, 1.0f, 1.0f,
+		-1.0f, 1.0f,-1.0f,
+		1.0f,-1.0f, 1.0f,
+		-1.0f,-1.0f, 1.0f,
+		-1.0f,-1.0f,-1.0f,
+		-1.0f, 1.0f, 1.0f,
+		-1.0f,-1.0f, 1.0f,
+		1.0f,-1.0f, 1.0f,
+		1.0f, 1.0f, 1.0f,
+		1.0f,-1.0f,-1.0f,
+		1.0f, 1.0f,-1.0f,
+		1.0f,-1.0f,-1.0f,
+		1.0f, 1.0f, 1.0f,
+		1.0f,-1.0f, 1.0f,
+		1.0f, 1.0f, 1.0f,
+		1.0f, 1.0f,-1.0f,
+		-1.0f, 1.0f,-1.0f,
+		1.0f, 1.0f, 1.0f,
+		-1.0f, 1.0f,-1.0f,
+		-1.0f, 1.0f, 1.0f,
+		1.0f, 1.0f, 1.0f,
+		-1.0f, 1.0f, 1.0f,
+		1.0f,-1.0f, 1.0f
 	};
-	glGenBuffers(1, &vbo_cube_vertices);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo_cube_vertices);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(cube_vertices), cube_vertices, GL_STATIC_DRAW);
 
-	GLfloat cube_colors[] = {
-		// front colors
-		1.0, 0.0, 0.0,
-		0.0, 1.0, 0.0,
-		0.0, 0.0, 1.0,
-		1.0, 1.0, 1.0,
-		// back colors
-		1.0, 0.0, 0.0,
-		0.0, 1.0, 0.0,
-		0.0, 0.0, 1.0,
-		1.0, 1.0, 1.0,
+	// One color for each vertex. They were generated randomly.
+	static const GLfloat g_color_buffer_data[] = {
+		0.583f,  0.771f,  0.014f,
+		0.609f,  0.115f,  0.436f,
+		0.327f,  0.483f,  0.844f,
+		0.822f,  0.569f,  0.201f,
+		0.435f,  0.602f,  0.223f,
+		0.310f,  0.747f,  0.185f,
+		0.597f,  0.770f,  0.761f,
+		0.559f,  0.436f,  0.730f,
+		0.359f,  0.583f,  0.152f,
+		0.483f,  0.596f,  0.789f,
+		0.559f,  0.861f,  0.639f,
+		0.195f,  0.548f,  0.859f,
+		0.014f,  0.184f,  0.576f,
+		0.771f,  0.328f,  0.970f,
+		0.406f,  0.615f,  0.116f,
+		0.676f,  0.977f,  0.133f,
+		0.971f,  0.572f,  0.833f,
+		0.140f,  0.616f,  0.489f,
+		0.997f,  0.513f,  0.064f,
+		0.945f,  0.719f,  0.592f,
+		0.543f,  0.021f,  0.978f,
+		0.279f,  0.317f,  0.505f,
+		0.167f,  0.620f,  0.077f,
+		0.347f,  0.857f,  0.137f,
+		0.055f,  0.953f,  0.042f,
+		0.714f,  0.505f,  0.345f,
+		0.783f,  0.290f,  0.734f,
+		0.722f,  0.645f,  0.174f,
+		0.302f,  0.455f,  0.848f,
+		0.225f,  0.587f,  0.040f,
+		0.517f,  0.713f,  0.338f,
+		0.053f,  0.959f,  0.120f,
+		0.393f,  0.621f,  0.362f,
+		0.673f,  0.211f,  0.457f,
+		0.820f,  0.883f,  0.371f,
+		0.982f,  0.099f,  0.879f
 	};
-	glGenBuffers(1, &vbo_cube_colors);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo_cube_colors);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(cube_colors), cube_colors, GL_STATIC_DRAW);
 
-	GLushort cube_elements[] = {
-		// front
-		0, 1, 2,
-		2, 3, 0,
-		// top
-		1, 5, 6,
-		6, 2, 1,
-		// back
-		7, 6, 5,
-		5, 4, 7,
-		// bottom
-		4, 0, 3,
-		3, 7, 4,
-		// left
-		4, 5, 1,
-		1, 0, 4,
-		// right
-		3, 2, 6,
-		6, 7, 3,
-	};
-	glGenBuffers(1, &ibo_cube_elements);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_cube_elements);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cube_elements), cube_elements, GL_STATIC_DRAW);
+	glGenBuffers(1, &vertexBuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
+
+	glGenBuffers(1, &colorBuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(g_color_buffer_data), g_color_buffer_data, GL_STATIC_DRAW);
 
 	GLint link_ok = GL_FALSE;
 
@@ -359,109 +369,119 @@ void UpdateScene(float dt)
 	// Get a handle for our "MVP" uniform
 	//GLuint MatrixID = glGetUniformLocation(shaderProgram, "mvp");
 
-	// Projection matrix : 45° Field of View, 4:3 ratio, display range : 0.1 unit <-> 100 units
-	glm::mat4 Projection = glm::perspective(45.0f, 4.0f / 3.0f, 0.1f, 100.0f);
-	// Camera matrix
-	glm::mat4 View = glm::lookAt(
-		glm::vec3(-4, 3, -10), 
-		glm::vec3(0, 0, 0), // and looks at the origin
-		glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
-		);
-	// Model matrix : an identity matrix (model will be at the origin)
-	glm::mat4 Model = glm::mat4(1.0f);
-	// Our ModelViewProjection : multiplication of our 3 matrices
-	glm::mat4 MVP = Projection * View * Model; // Remember, matrix multiplication is the other way around
+	static float theta = 45.0f;
 
-	glUseProgram(shaderProgram);
-	glUniformMatrix4fv(uniform_mvp, 1, GL_FALSE, &MVP[0][0]);
+	for (int i = 0; i < cubes.size(); ++i)
+	{
+		// Projection matrix : 45° Field of View, 4:3 ratio, display range : 0.1 unit <-> 100 units
+		Projection = glm::perspective(45.0f, 4.0f / 3.0f, 0.1f, 100.0f);
+		// Camera matrix
+		View = glm::lookAt(
+			glm::vec3(0, 0, -20),
+			glm::vec3(0, 0, 0), // and looks at the origin
+			glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
+			);
+		// Model matrix : an identity matrix (model will be at the origin)
+
+		cubes[i].rot = glm::rotate(glm::mat4(1.0f), theta, glm::vec3(0.0f, 1.0f, 0.0f));
+
+		cubes[i].currentPos = glm::mix(cubes[i].startingPos, cubes[i].targetPos, cubes[i].tValue);
+
+		cubes[i].trans = glm::translate(glm::mat4(1.0f), cubes[i].currentPos);
+
+		glm::mat4 Model = cubes[i].trans * cubes[i].rot;
+		// Our ModelViewProjection : multiplication of our 3 matrices
+		//glm::mat4 MVP = Projection * View * Model; // Remember, matrix multiplication is the other way around
+		cubes[i].MVP = Projection * View * Model;
+
+		// Incrementing tValue till cube reaches cursur pos
+		if (cubes[i].tValue < 1.0f)
+		{
+			cubes[i].tValue += 0.01f;
+		}
+		else if (curExplosions < maxExplosions) // Cube has reached cursor pos, time to spawn more cubes
+		{
+			glm::vec3 randVec1 = glm::sphericalRand(10.0f);
+			glm::vec3 randVec2 = glm::sphericalRand(10.0f);
+
+			Cube cube1;
+			cube1.currentPos = cubes[i].currentPos;
+			cube1.startingPos = cubes[i].currentPos;
+			cube1.targetPos = glm::vec3(cubes[i].currentPos.x + randVec1.x, cubes[i].currentPos.y + randVec1.y, cubes[i].currentPos.z);
+			
+			Cube cube2;
+			cube2.currentPos = cubes[i].currentPos;
+			cube2.startingPos = cubes[i].currentPos;
+			cube2.targetPos = glm::vec3(cubes[i].currentPos.x + randVec2.x, cubes[i].currentPos.y + randVec2.y, cubes[i].currentPos.z);
+
+			cubes.erase(cubes.begin() + i);
+
+			cubes.push_back(cube1);
+			cubes.push_back(cube2);
+			
+			curExplosions++;
+		}
+		else
+		{
+			cubes.clear();
+			curExplosions = 0;
+		}
+
+		//glUseProgram(shaderProgram);
+		//glUniformMatrix4fv(uniform_mvp, 1, GL_FALSE, &cubes[i].MVP[0][0]);
+	}
+
+	theta += 0.01f;
 
 	return;
 }
 
 void Render(float& theta, HDC hDC)
 {
-	glClearColor(1.0, 1.0, 1.0, 1.0);
+	// Clear the screen
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+	// Use our shader
 	glUseProgram(shaderProgram);
-	glEnableVertexAttribArray(attribute_coord3d);
-	// Describe our vertices array to OpenGL (it can't guess its format automatically)
-	glBindBuffer(GL_ARRAY_BUFFER, vbo_cube_vertices);
+
+	// 1rst attribute buffer : vertices
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
 	glVertexAttribPointer(
-		attribute_coord3d, // attribute
-		3,                 // number of elements per vertex, here (x,y,z)
-		GL_FLOAT,          // the type of each element
-		GL_FALSE,          // take our values as-is
-		0,                 // no extra data between each position
-		0                  // offset of first element
+		0,                  // attribute. No particular reason for 0, but must match the layout in the shader.
+		3,                  // size
+		GL_FLOAT,           // type
+		GL_FALSE,           // normalized?
+		0,                  // stride
+		(void*)0            // array buffer offset
 		);
 
-	glEnableVertexAttribArray(attribute_v_color);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo_cube_colors);
+	// 2nd attribute buffer : colors
+	glEnableVertexAttribArray(1);
+	glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
 	glVertexAttribPointer(
-		attribute_v_color, // attribute
-		3,                 // number of elements per vertex, here (R,G,B)
-		GL_FLOAT,          // the type of each element
-		GL_FALSE,          // take our values as-is
-		0,                 // no extra data between each position
-		0                  // offset of first element
+		1,                                // attribute. No particular reason for 1, but must match the layout in the shader.
+		3,                                // size
+		GL_FLOAT,                         // type
+		GL_FALSE,                         // normalized?
+		0,                                // stride
+		(void*)0                          // array buffer offset
 		);
 
-	/* Push each element in buffer_vertices to the vertex shader */
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_cube_elements);
-	int size;  glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &size);
-	glDrawElements(GL_TRIANGLES, size / sizeof(GLushort), GL_UNSIGNED_SHORT, 0);
 
-	glDisableVertexAttribArray(attribute_coord3d);
-	glDisableVertexAttribArray(attribute_v_color);
-	//// OpenGL animation code goes here
-	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-	//glLoadIdentity();
-	//glTranslatef(-1.5f, 0.0f, -6.0f);
+	for (GLuint i = 0; i < cubes.size(); ++i)
+	{
+		// Send our transformation to the currently bound shader, 
+		// in the "MVP" uniform
+		glUniformMatrix4fv(uniform_mvp, 1, GL_FALSE, &cubes[i].MVP[0][0]);
 
-	//glBegin(GL_TRIANGLES);                      // Drawing Using Triangles
-	//glColor3f(1.0f, 0.0f, 0.0f); glVertex2f(0.0f, 1.0f);              // Top
-	//glColor3f(1.0f, 0.0f, 0.0f); glVertex2f(0.87f, -0.5f);              // Bottom Left
-	//glColor3f(1.0f, 0.0f, 0.0f); glVertex2f(-0.87f, -0.5f);              // Bottom Right
-	//glEnd();                            // Finished Drawing The Triangle
 
-	//GLenum err = glGetError();
-
-	//gltranslatef(3.0f, 0.0f, 0.0f);                   // move right 3 units
-
-	//glbegin(gl_quads);                      // draw a quad
-	//glvertex3f(-1.0f, 1.0f, 0.0f);              // top left
-	//glvertex3f(1.0f, 1.0f, 0.0f);              // top right
-	//glvertex3f(1.0f, -1.0f, 0.0f);              // bottom right
-	//glvertex3f(-1.0f, -1.0f, 0.0f);              // bottom left
-	//glend();                            // Done Drawing The Quad
-	//if (vboSupported)
-	//{
-	//	glBindBufferARB(GL_ARRAY_BUFFER_ARB, vboID);
-
-	//	// enable vertex arrays
-	//	glEnableClientState(GL_NORMAL_ARRAY);
-	//	glEnableClientState(GL_COLOR_ARRAY);
-	//	glEnableClientState(GL_VERTEX_ARRAY);
-
-	//	// before draw, specify vertex and index arrays with their offsets
-	//	glNormalPointer(GL_FLOAT, 0, (void*)sizeof(vertices));
-	//	glColorPointer(3, GL_FLOAT, 0, (void*)(sizeof(vertices) + sizeof(normals)));
-	//	glVertexPointer(3, GL_FLOAT, 0, 0);
-
-	//	glDrawArrays(GL_TRIANGLES, 0, 36);
-
-	//	glDisableClientState(GL_VERTEX_ARRAY);  // disable vertex arrays
-	//	glDisableClientState(GL_COLOR_ARRAY);
-	//	glDisableClientState(GL_NORMAL_ARRAY);
-
-	//	// it is good idea to release VBOs with ID 0 after use.
-	//	// Once bound with 0, all pointers in gl*Pointer() behave as real
-	//	// pointer, so, normal vertex array operations are re-activated
-	//	glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
-	//}
-
+		// Draw the triangle !
+		glDrawArrays(GL_TRIANGLES, 0, 12 * 3); // 12*3 indices starting at 0 -> 12 triangles
+	}
 	
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
 
 	SwapBuffers(hDC);
 
@@ -486,3 +506,15 @@ std::string loadFile(const char *fname)
 
 	return fileData.str();
 }
+
+//glm::vec3 get3dPoint(glm::vec2 point2D, int width,
+//	int height, glm::mat4 viewMatrix, glm::mat4 projectionMatrix) {
+//
+//	double x = 2.0 * winX / clientWidth - 1;
+//	double y = -2.0 * winY / clientHeight + 1;
+//	Matrix4 viewProjectionInverse = inverse(projectionMatrix *
+//		viewMatrix);
+//
+//	Point3D point3D = new Point3D(x, y, 0);
+//	return viewProjectionInverse.multiply(point3D);
+//}
